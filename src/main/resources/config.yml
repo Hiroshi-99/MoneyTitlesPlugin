@@ -1,0 +1,44 @@
+# Title Animation Settings
+title:
+  fade-in: 5
+  stay: 40
+  fade-out: 5
+
+# Messages
+messages:
+  kill-title: "&a&l+%amount% $"
+  kill-subtitle: "&f&lfor killing %victim%"
+  death-title: "&c&l-%amount% $"
+  death-subtitle: "&f&lKilled by %killer%"
+
+# Sound Settings
+sounds:
+  kill:
+    enabled: true
+    sound: ENTITY_PLAYER_LEVELUP
+    volume: 1.0
+    pitch: 1.0
+  death:
+    enabled: true
+    sound: ENTITY_VILLAGER_DEATH
+    volume: 1.0
+    pitch: 0.5
+
+# Money Format Settings
+format:
+  quadrillion:
+    suffix: "Q"
+    enabled: true
+  trillion:
+    suffix: "T"
+    enabled: true
+  billion:
+    suffix: "B"
+    enabled: true
+  million:
+    suffix: "M"
+    enabled: true
+  thousand:
+    suffix: "K"
+    enabled: true
+  decimal-places: 2

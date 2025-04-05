@@ -1,0 +1,19 @@
+name: MoneyTitles
+version: '1.0'
+main: org.cipher.moneyTitles.MoneyTitles
+api-version: '1.21'
+depend: [ Vault ]
+description: High-performance money titles plugin for PvP
+author: Cipher88
+website: https://cipher88.store
+commands:
+  moneytitles:
+    description: Reload the MoneyTitles plugin configuration
+    usage: /moneytitles reload
+    permission: moneytitles.reload
+    aliases: [ mt ]
+
+permissions:
+  moneytitles.reload:
+    description: Allows reloading the plugin configuration
+    default: op
