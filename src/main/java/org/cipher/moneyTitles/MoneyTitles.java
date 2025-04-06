@@ -15,9 +15,11 @@ import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.plugin.RegisteredServiceProvider;
 import org.bukkit.plugin.java.JavaPlugin;
 
+import java.text.DecimalFormat;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.logging.Level;
 
 public class MoneyTitles extends JavaPlugin implements Listener {
     private Economy econ;
@@ -30,7 +32,8 @@ public class MoneyTitles extends JavaPlugin implements Listener {
     private String deathTitle;
     private String deathSubtitle;
     private int decimalPlaces;
-
+    private DecimalFormat moneyFormat;
+    
     // Sound settings
     private boolean killSoundEnabled;
     private Sound killSound;
@@ -40,6 +43,21 @@ public class MoneyTitles extends JavaPlugin implements Listener {
     private Sound deathSound;
     private float deathSoundVolume;
     private float deathSoundPitch;
+    
+    // Format settings
+    private boolean formatQuadrillionEnabled;
+    private String formatQuadrillionSuffix;
+    private boolean formatTrillionEnabled;
+    private String formatTrillionSuffix;
+    private boolean formatBillionEnabled;
+    private String formatBillionSuffix;
+    private boolean formatMillionEnabled;
+    private String formatMillionSuffix;
+    private boolean formatThousandEnabled;
+    private String formatThousandSuffix;
+    
+    // Task ID for cancellation when disabling
+    private int balanceTrackerTaskId = -1;
 
     @Override
     public void onEnable() {
@@ -70,6 +88,15 @@ public class MoneyTitles extends JavaPlugin implements Listener {
         getLogger().info(ChatColor.GREEN + "» " + ChatColor.WHITE + "Economy hook: " + ChatColor.GREEN + "Enabled");
         getLogger().info("");
     }
+    
+    @Override
+    public void onDisable() {
+        if (balanceTrackerTaskId != -1) {
+            Bukkit.getScheduler().cancelTask(balanceTrackerTaskId);
+        }
+        lastKnownBalance.clear();
+        getLogger().info(ChatColor.RED + "» " + ChatColor.WHITE + "Plugin has been disabled.");
+    }
 
     private void loadConfig() {
         reloadConfig();
@@ -79,30 +106,53 @@ public class MoneyTitles extends JavaPlugin implements Listener {
         titleStay = config.getInt("title.stay", 40);
         titleFadeOut = config.getInt("title.fade-out", 5);
 
-        killTitle = config.getString("messages.kill-title", "&a&l+%amount% $");
-        killSubtitle = config.getString("messages.kill-subtitle", "&f&lfor killing %victim%");
-        deathTitle = config.getString("messages.death-title", "&c&l-%amount% $");
-        deathSubtitle = config.getString("messages.death-subtitle", "&f&lKilled by %killer%");
+        killTitle = ChatColor.translateAlternateColorCodes('&', 
+                config.getString("messages.kill-title", "&a&l+%amount% $"));
+        killSubtitle = ChatColor.translateAlternateColorCodes('&', 
+                config.getString("messages.kill-subtitle", "&f&lfor killing %victim%"));
+        deathTitle = ChatColor.translateAlternateColorCodes('&', 
+                config.getString("messages.death-title", "&c&l-%amount% $"));
+        deathSubtitle = ChatColor.translateAlternateColorCodes('&', 
+                config.getString("messages.death-subtitle", "&f&lKilled by %killer%"));
 
         decimalPlaces = config.getInt("format.decimal-places", 2);
+        moneyFormat = new DecimalFormat("#,##0" + (decimalPlaces > 0 ? "." + "0".repeat(decimalPlaces) : ""));
+        
+        // Load format settings
+        formatQuadrillionEnabled = config.getBoolean("format.quadrillion.enabled", true);
+        formatQuadrillionSuffix = config.getString("format.quadrillion.suffix", "Q");
+        formatTrillionEnabled = config.getBoolean("format.trillion.enabled", true);
+        formatTrillionSuffix = config.getString("format.trillion.suffix", "T");
+        formatBillionEnabled = config.getBoolean("format.billion.enabled", true);
+        formatBillionSuffix = config.getString("format.billion.suffix", "B");
+        formatMillionEnabled = config.getBoolean("format.million.enabled", true);
+        formatMillionSuffix = config.getString("format.million.suffix", "M");
+        formatThousandEnabled = config.getBoolean("format.thousand.enabled", true);
+        formatThousandSuffix = config.getString("format.thousand.suffix", "K");
 
         // Load sound settings
+        loadSoundSettings(config);
+    }
+    
+    private void loadSoundSettings(FileConfiguration config) {
         killSoundEnabled = config.getBoolean("sounds.kill.enabled", true);
+        String killSoundName = config.getString("sounds.kill.sound", "ENTITY_PLAYER_LEVELUP");
         try {
-            killSound = Sound.valueOf(config.getString("sounds.kill.sound", "ENTITY_PLAYER_LEVELUP"));
+            killSound = Sound.valueOf(killSoundName);
         } catch (IllegalArgumentException e) {
             killSound = Sound.ENTITY_PLAYER_LEVELUP;
-            getLogger().warning("Invalid kill sound in config! Using default sound.");
+            getLogger().warning("Invalid kill sound in config: " + killSoundName + "! Using default sound.");
         }
         killSoundVolume = (float) config.getDouble("sounds.kill.volume", 1.0);
         killSoundPitch = (float) config.getDouble("sounds.kill.pitch", 1.0);
 
         deathSoundEnabled = config.getBoolean("sounds.death.enabled", true);
+        String deathSoundName = config.getString("sounds.death.sound", "ENTITY_VILLAGER_DEATH");
         try {
-            deathSound = Sound.valueOf(config.getString("sounds.death.sound", "ENTITY_VILLAGER_DEATH"));
+            deathSound = Sound.valueOf(deathSoundName);
         } catch (IllegalArgumentException e) {
             deathSound = Sound.ENTITY_VILLAGER_DEATH;
-            getLogger().warning("Invalid death sound in config! Using default sound.");
+            getLogger().warning("Invalid death sound in config: " + deathSoundName + "! Using default sound.");
         }
         deathSoundVolume = (float) config.getDouble("sounds.death.volume", 1.0);
         deathSoundPitch = (float) config.getDouble("sounds.death.pitch", 0.5);
@@ -110,17 +160,25 @@ public class MoneyTitles extends JavaPlugin implements Listener {
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
-        if (command.getName().equalsIgnoreCase("moneytitles")) {
-            if (!sender.hasPermission("moneytitles.reload")) {
-                sender.sendMessage(ChatColor.RED + "You don't have permission to use this command!");
-                return true;
-            }
+        if (!command.getName().equalsIgnoreCase("moneytitles")) {
+            return false;
+        }
+        
+        if (!sender.hasPermission("moneytitles.reload")) {
+            sender.sendMessage(ChatColor.RED + "You don't have permission to use this command!");
+            return true;
+        }
 
+        if (args.length > 0 && args[0].equalsIgnoreCase("reload")) {
             loadConfig();
             sender.sendMessage(ChatColor.GREEN + "MoneyTitles configuration reloaded!");
             return true;
         }
-        return false;
+        
+        // Show help if no arguments provided
+        sender.sendMessage(ChatColor.AQUA + "MoneyTitles " + ChatColor.GRAY + "v" + getDescription().getVersion());
+        sender.sendMessage(ChatColor.GRAY + "/moneytitles reload " + ChatColor.WHITE + "- Reload the configuration");
+        return true;
     }
 
     private boolean setupEconomy() {
@@ -132,38 +190,61 @@ public class MoneyTitles extends JavaPlugin implements Listener {
             return false;
         }
         econ = rsp.getProvider();
-        return true;
+        return econ != null;
     }
 
     private void startBalanceTracker() {
-        Bukkit.getScheduler().runTaskTimerAsynchronously(this, () -> {
-            for (Player player : Bukkit.getOnlinePlayers()) {
-                lastKnownBalance.put(player.getUniqueId(), econ.getBalance(player));
+        balanceTrackerTaskId = Bukkit.getScheduler().runTaskTimerAsynchronously(this, () -> {
+            try {
+                for (Player player : Bukkit.getOnlinePlayers()) {
+                    if (player != null && player.isOnline()) {
+                        lastKnownBalance.put(player.getUniqueId(), econ.getBalance(player));
+                    }
+                }
+            } catch (Exception e) {
+                getLogger().log(Level.SEVERE, "Error in balance tracker: ", e);
             }
-        }, 5L, 5L);
+        }, 5L, 5L).getTaskId();
     }
 
     private String formatMoney(double amount) {
-        FileConfiguration config = getConfig();
-        String format = "%." + decimalPlaces + "f";
-
-        if (amount >= 1_000_000_000_000_000D && config.getBoolean("format.quadrillion.enabled", true)) {
-            return String.format(format + "%s", amount / 1_000_000_000_000_000D,
-                    config.getString("format.quadrillion.suffix", "Q")).replace(".00", "");
-        } else if (amount >= 1_000_000_000_000D && config.getBoolean("format.trillion.enabled", true)) {
-            return String.format(format + "%s", amount / 1_000_000_000_000D,
-                    config.getString("format.trillion.suffix", "T")).replace(".00", "");
-        } else if (amount >= 1_000_000_000D && config.getBoolean("format.billion.enabled", true)) {
-            return String.format(format + "%s", amount / 1_000_000_000D,
-                    config.getString("format.billion.suffix", "B")).replace(".00", "");
-        } else if (amount >= 1_000_000D && config.getBoolean("format.million.enabled", true)) {
-            return String.format(format + "%s", amount / 1_000_000D,
-                    config.getString("format.million.suffix", "M")).replace(".00", "");
-        } else if (amount >= 1_000D && config.getBoolean("format.thousand.enabled", true)) {
-            return String.format(format + "%s", amount / 1_000D,
-                    config.getString("format.thousand.suffix", "K")).replace(".00", "");
+        if (amount >= 1_000_000_000_000_000D && formatQuadrillionEnabled) {
+            return formatLargeNumber(amount, 1_000_000_000_000_000D, formatQuadrillionSuffix);
+        } else if (amount >= 1_000_000_000_000D && formatTrillionEnabled) {
+            return formatLargeNumber(amount, 1_000_000_000_000D, formatTrillionSuffix);
+        } else if (amount >= 1_000_000_000D && formatBillionEnabled) {
+            return formatLargeNumber(amount, 1_000_000_000D, formatBillionSuffix);
+        } else if (amount >= 1_000_000D && formatMillionEnabled) {
+            return formatLargeNumber(amount, 1_000_000D, formatMillionSuffix);
+        } else if (amount >= 1_000D && formatThousandEnabled) {
+            return formatLargeNumber(amount, 1_000D, formatThousandSuffix);
         }
-        return String.format("%.0f", amount);
+        return moneyFormat.format(amount);
+    }
+    
+    private String formatLargeNumber(double amount, double divisor, String suffix) {
+        double value = amount / divisor;
+        if (decimalPlaces == 0 || value == Math.floor(value)) {
+            return ((int) value) + suffix;
+        } else {
+            return moneyFormat.format(value) + suffix;
+        }
+    }
+    
+    private void sendMoneyTitle(Player player, String title, String subtitle) {
+        try {
+            player.sendTitle(title, subtitle, titleFadeIn, titleStay, titleFadeOut);
+        } catch (Exception e) {
+            getLogger().log(Level.WARNING, "Failed to send title to " + player.getName(), e);
+        }
+    }
+    
+    private void playSound(Player player, Sound sound, float volume, float pitch) {
+        try {
+            player.playSound(player.getLocation(), sound, volume, pitch);
+        } catch (Exception e) {
+            getLogger().log(Level.WARNING, "Failed to play sound for " + player.getName(), e);
+        }
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
@@ -171,7 +252,9 @@ public class MoneyTitles extends JavaPlugin implements Listener {
         Player victim = event.getEntity();
         Player killer = victim.getKiller();
 
-        if (killer == null) return;
+        if (killer == null || killer.equals(victim)) {
+            return;
+        }
 
         double oldKillerBalance = lastKnownBalance.getOrDefault(killer.getUniqueId(), 0D);
         double newKillerBalance = econ.getBalance(killer);
@@ -185,32 +268,36 @@ public class MoneyTitles extends JavaPlugin implements Listener {
         lastKnownBalance.put(killer.getUniqueId(), newKillerBalance);
         lastKnownBalance.put(victim.getUniqueId(), newVictimBalance);
 
+        // Process killer rewards
         if (gained > 0) {
-            String display = formatMoney(gained);
-            String title = ChatColor.translateAlternateColorCodes('&',
-                    killTitle.replace("%amount%", display));
-            String subtitle = ChatColor.translateAlternateColorCodes('&',
-                    killSubtitle.replace("%victim%", victim.getName()));
-            killer.sendTitle(title, subtitle, titleFadeIn, titleStay, titleFadeOut);
-
-            // Play kill sound
-            if (killSoundEnabled) {
-                killer.playSound(killer.getLocation(), killSound, killSoundVolume, killSoundPitch);
-            }
+            String formattedAmount = formatMoney(gained);
+            String title = killTitle.replace("%amount%", formattedAmount);
+            String subtitle = killSubtitle.replace("%victim%", victim.getName());
+            
+            // Send title and sound async to reduce main thread load
+            Bukkit.getScheduler().runTask(this, () -> {
+                sendMoneyTitle(killer, title, subtitle);
+                
+                if (killSoundEnabled) {
+                    playSound(killer, killSound, killSoundVolume, killSoundPitch);
+                }
+            });
         }
 
+        // Process victim penalties
         if (lost > 0) {
-            String display = formatMoney(lost);
-            String title = ChatColor.translateAlternateColorCodes('&',
-                    deathTitle.replace("%amount%", display));
-            String subtitle = ChatColor.translateAlternateColorCodes('&',
-                    deathSubtitle.replace("%killer%", killer.getName()));
-            victim.sendTitle(title, subtitle, titleFadeIn, titleStay, titleFadeOut);
-
-            // Play death sound
-            if (deathSoundEnabled) {
-                victim.playSound(victim.getLocation(), deathSound, deathSoundVolume, deathSoundPitch);
-            }
+            String formattedAmount = formatMoney(lost);
+            String title = deathTitle.replace("%amount%", formattedAmount);
+            String subtitle = deathSubtitle.replace("%killer%", killer.getName());
+            
+            // Send title and sound async to reduce main thread load
+            Bukkit.getScheduler().runTask(this, () -> {
+                sendMoneyTitle(victim, title, subtitle);
+                
+                if (deathSoundEnabled) {
+                    playSound(victim, deathSound, deathSoundVolume, deathSoundPitch);
+                }
+            });
         }
     }
 }
