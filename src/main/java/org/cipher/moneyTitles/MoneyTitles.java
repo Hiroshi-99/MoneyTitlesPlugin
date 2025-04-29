@@ -111,10 +111,6 @@ public class MoneyTitles extends JavaPlugin implements Listener {
             sendColoredMessage(ChatColor.GREEN + "╠═════════════════════════════════════╣");
             sendColoredMessage(ChatColor.GREEN + "║ " + ChatColor.WHITE + "  License successfully verified!   "
                     + ChatColor.GREEN + " ║");
-            sendColoredMessage(ChatColor.GREEN + "║ " + ChatColor.WHITE + "  Thank you for using         "
-                    + ChatColor.GREEN + " ║");
-            sendColoredMessage(ChatColor.GREEN + "║ " + ChatColor.WHITE + "  MoneyTitles!                     "
-                    + ChatColor.GREEN + " ║");
             sendColoredMessage(ChatColor.GREEN + "╚═════════════════════════════════════╝");
             sendColoredMessage("");
         }
