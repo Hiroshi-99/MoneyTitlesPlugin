@@ -1,161 +1,359 @@
 package org.cipher.moneyTitles;
 
-import net.milkbowl.vault.economy.Economy;
-import org.bukkit.Bukkit;
+import org.bstats.bukkit.Metrics;
 import org.bukkit.ChatColor;
-import org.bukkit.Sound;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
-import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.PlayerDeathEvent;
-import org.bukkit.plugin.RegisteredServiceProvider;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.cipher.moneyTitles.config.ConfigManager;
+import org.cipher.moneyTitles.manager.BalanceManager;
+import org.cipher.moneyTitles.manager.GuiManager;
+import org.cipher.moneyTitles.manager.InteractionManager;
+import org.cipher.moneyTitles.manager.StatsManager;
+import org.cipher.moneyTitles.manager.TitleManager;
+import org.cipher.moneyTitles.util.MoneyFormatter;
+import org.cipher.moneyTitles.util.LicenseVerifier;
+import org.bukkit.configuration.file.FileConfiguration;
+import org.bukkit.configuration.file.YamlConfiguration;
+import java.io.File;
 
-import java.text.DecimalFormat;
 import java.util.Map;
-import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
 
+/**
+ * Main plugin class for MoneyTitles.
+ * Optimized for high-performance processing of player kills and deaths.
+ */
 public class MoneyTitles extends JavaPlugin implements Listener {
-    private Economy econ;
-    private final Map<UUID, Double> lastKnownBalance = new ConcurrentHashMap<>();
-    private int titleFadeIn;
-    private int titleStay;
-    private int titleFadeOut;
-    private String killTitle;
-    private String killSubtitle;
-    private String deathTitle;
-    private String deathSubtitle;
-    private int decimalPlaces;
-    private DecimalFormat moneyFormat;
-    
-    // Sound settings
-    private boolean killSoundEnabled;
-    private Sound killSound;
-    private float killSoundVolume;
-    private float killSoundPitch;
-    private boolean deathSoundEnabled;
-    private Sound deathSound;
-    private float deathSoundVolume;
-    private float deathSoundPitch;
-    
-    // Format settings
-    private boolean formatQuadrillionEnabled;
-    private String formatQuadrillionSuffix;
-    private boolean formatTrillionEnabled;
-    private String formatTrillionSuffix;
-    private boolean formatBillionEnabled;
-    private String formatBillionSuffix;
-    private boolean formatMillionEnabled;
-    private String formatMillionSuffix;
-    private boolean formatThousandEnabled;
-    private String formatThousandSuffix;
-    
-    // Task ID for cancellation when disabling
-    private int balanceTrackerTaskId = -1;
+    private ConfigManager configManager;
+    private BalanceManager balanceManager;
+    private TitleManager titleManager;
+    private MoneyFormatter moneyFormatter;
+    private StatsManager statsManager;
+    private GuiManager guiManager;
+    private InteractionManager interactionManager;
+    private LicenseVerifier licenseVerifier;
+
+    // Stats tracking
+    private final AtomicInteger killsTracked = new AtomicInteger(0);
+    private final AtomicInteger moneyTransferred = new AtomicInteger(0);
+    private static final int BSTATS_PLUGIN_ID = 25383;
 
     @Override
     public void onEnable() {
-        // Show beautiful startup message with simpler characters
-        getLogger().info("");
-        getLogger().info(ChatColor.AQUA + "+-----------------------+");
-        getLogger().info(ChatColor.AQUA + "|" + ChatColor.WHITE + ChatColor.BOLD + "     MoneyTitles     " + ChatColor.AQUA + "|");
-        getLogger().info(ChatColor.AQUA + "|" + ChatColor.YELLOW + "    Version: " + getDescription().getVersion() + ChatColor.AQUA + "    |");
-        getLogger().info(ChatColor.AQUA + "|" + ChatColor.WHITE + "  Developed with " + ChatColor.RED + "♥" + ChatColor.WHITE + " by" + ChatColor.AQUA + "  |");
-        getLogger().info(ChatColor.AQUA + "|" + ChatColor.GOLD + "     Cipher88     " + ChatColor.AQUA + "|");
-        getLogger().info(ChatColor.AQUA + "+-----------------------+");
-        getLogger().info("");
-
+        // License check (Lukittu)
         saveDefaultConfig();
-        loadConfig();
-
-        if (!setupEconomy()) {
-            getLogger().severe(ChatColor.RED + "✘ " + ChatColor.WHITE + "Vault not found! Disabling plugin.");
+        String licenseKey = getConfig().getString("license.key");
+        if (licenseKey == null || licenseKey.equals("YOUR_LICENSE_KEY") || licenseKey.isEmpty()) {
+            sendColoredMessage("");
+            sendColoredMessage(ChatColor.RED + "╔═════════════════════════════════════╗");
+            sendColoredMessage(ChatColor.RED + "║ " + ChatColor.YELLOW + ChatColor.BOLD
+                    + "         LICENSE ERROR         " + ChatColor.RED + " ║");
+            sendColoredMessage(ChatColor.RED + "╠═════════════════════════════════════╣");
+            sendColoredMessage(ChatColor.RED + "║ " + ChatColor.WHITE + "  Invalid or missing license key!  "
+                    + ChatColor.RED + " ║");
+            sendColoredMessage(ChatColor.RED + "║ " + ChatColor.WHITE + "  Please set a valid license key   "
+                    + ChatColor.RED + " ║");
+            sendColoredMessage(ChatColor.RED + "║ " + ChatColor.WHITE + "  in your config.yml file.         "
+                    + ChatColor.RED + " ║");
+            sendColoredMessage(ChatColor.RED + "╚═════════════════════════════════════╝");
+            sendColoredMessage("");
             getServer().getPluginManager().disablePlugin(this);
             return;
         }
 
-        getServer().getPluginManager().registerEvents(this, this);
-        startBalanceTracker();
+        licenseVerifier = new LicenseVerifier(licenseKey, this);
+        if (!licenseVerifier.verify()) {
+            sendColoredMessage("");
+            sendColoredMessage(ChatColor.RED + "╔═════════════════════════════════════╗");
+            sendColoredMessage(ChatColor.RED + "║ " + ChatColor.YELLOW + ChatColor.BOLD
+                    + "      LICENSE VERIFICATION      " + ChatColor.RED + " ║");
+            sendColoredMessage(ChatColor.RED + "╠═════════════════════════════════════╣");
+            sendColoredMessage(ChatColor.RED + "║ " + ChatColor.WHITE + "  License verification failed!     "
+                    + ChatColor.RED + " ║");
+            sendColoredMessage(ChatColor.RED + "║ " + ChatColor.WHITE + "  Please check your license key    "
+                    + ChatColor.RED + " ║");
+            sendColoredMessage(ChatColor.RED + "║ " + ChatColor.WHITE + "  or contact Cipher88.              "
+                    + ChatColor.RED + " ║");
+            sendColoredMessage(ChatColor.RED + "╚═════════════════════════════════════╝");
+            sendColoredMessage("");
+            getServer().getPluginManager().disablePlugin(this);
+            return;
+        }
 
-        // Show successful startup with simpler characters
-        getLogger().info(ChatColor.GREEN + "» " + ChatColor.WHITE + "Plugin has been enabled successfully!");
-        getLogger().info(ChatColor.GREEN + "» " + ChatColor.WHITE + "Economy hook: " + ChatColor.GREEN + "Enabled");
-        getLogger().info("");
+        if (licenseVerifier.isOfflineMode()) {
+            sendColoredMessage("");
+            sendColoredMessage(ChatColor.YELLOW + "╔═════════════════════════════════════╗");
+            sendColoredMessage(ChatColor.YELLOW + "║ " + ChatColor.RED + ChatColor.BOLD + "        OFFLINE MODE        "
+                    + ChatColor.YELLOW + " ║");
+            sendColoredMessage(ChatColor.YELLOW + "╠═════════════════════════════════════╣");
+            sendColoredMessage(ChatColor.YELLOW + "║ " + ChatColor.WHITE + "  Running with offline validation!  "
+                    + ChatColor.YELLOW + " ║");
+            sendColoredMessage(ChatColor.YELLOW + "║ " + ChatColor.WHITE + "  License verification skipped      "
+                    + ChatColor.YELLOW + " ║");
+            sendColoredMessage(ChatColor.YELLOW + "║ " + ChatColor.WHITE + "  due to network connectivity       "
+                    + ChatColor.YELLOW + " ║");
+            sendColoredMessage(ChatColor.YELLOW + "║ " + ChatColor.WHITE + "  issues.                           "
+                    + ChatColor.YELLOW + " ║");
+            sendColoredMessage(ChatColor.YELLOW + "╚═════════════════════════════════════╝");
+            sendColoredMessage("");
+        } else {
+            sendColoredMessage("");
+            sendColoredMessage(ChatColor.GREEN + "╔═════════════════════════════════════╗");
+            sendColoredMessage(ChatColor.GREEN + "║ " + ChatColor.WHITE + ChatColor.BOLD
+                    + "      LICENSE VERIFICATION      " + ChatColor.GREEN + " ║");
+            sendColoredMessage(ChatColor.GREEN + "╠═════════════════════════════════════╣");
+            sendColoredMessage(ChatColor.GREEN + "║ " + ChatColor.WHITE + "  License successfully verified!   "
+                    + ChatColor.GREEN + " ║");
+            sendColoredMessage(ChatColor.GREEN + "║ " + ChatColor.WHITE + "  Thank you for using         "
+                    + ChatColor.GREEN + " ║");
+            sendColoredMessage(ChatColor.GREEN + "║ " + ChatColor.WHITE + "  MoneyTitles!                     "
+                    + ChatColor.GREEN + " ║");
+            sendColoredMessage(ChatColor.GREEN + "╚═════════════════════════════════════╝");
+            sendColoredMessage("");
+        }
+
+        // Schedule periodic license checks
+        startLicenseHeartbeat();
+
+        // Show beautiful startup message
+        displayStartupBanner();
+
+        // Initialize managers
+        initializeManagers();
+
+        // Setup economy hook
+        if (!balanceManager.setupEconomy()) {
+            sendColoredMessage(ChatColor.RED + "✘ " + ChatColor.WHITE + "Vault not found! Disabling plugin.");
+            getServer().getPluginManager().disablePlugin(this);
+            return;
+        }
+
+        // Register events
+        getServer().getPluginManager().registerEvents(this, this);
+
+        // Register the InteractionManager (comment out the following line as it's now
+        // handled by InteractionManager)
+        // getServer().getPluginManager().registerEvents(new
+        // PlayerInteractionListener(this), this);
+
+        // Start tracking player balances
+        balanceManager.startBalanceTracker();
+
+        // Setup metrics
+        setupMetrics();
+
+        // Show successful startup
+        sendColoredMessage("");
+        sendColoredMessage(ChatColor.GREEN + "╔═════════════════════════════════════╗");
+        sendColoredMessage(ChatColor.GREEN + "║ " + ChatColor.WHITE + ChatColor.BOLD + "        PLUGIN ENABLED        "
+                + ChatColor.GREEN + " ║");
+        sendColoredMessage(ChatColor.GREEN + "╠═════════════════════════════════════╣");
+        sendColoredMessage(ChatColor.GREEN + "║ " + ChatColor.WHITE + "  Active features:                 "
+                + ChatColor.GREEN + " ║");
+
+        StringBuilder economy = new StringBuilder(ChatColor.GREEN + "║ " + ChatColor.WHITE + "  » Economy hook: ");
+        economy.append(ChatColor.YELLOW + "Enabled");
+        economy.append(ChatColor.GREEN + "            ║");
+        sendColoredMessage(economy.toString());
+
+        if (configManager.isStatsEnabled()) {
+            StringBuilder stats = new StringBuilder(ChatColor.GREEN + "║ " + ChatColor.WHITE + "  » Player stats: ");
+            stats.append(ChatColor.YELLOW + "Enabled");
+            stats.append(ChatColor.GREEN + "            ║");
+            sendColoredMessage(stats.toString());
+        }
+
+        if (configManager.isShowPingOnCrosshair()) {
+            StringBuilder ping = new StringBuilder(ChatColor.GREEN + "║ " + ChatColor.WHITE + "  » Ping display: ");
+            ping.append(ChatColor.YELLOW + "Enabled");
+            ping.append(ChatColor.GREEN + "            ║");
+            sendColoredMessage(ping.toString());
+        }
+
+        if (configManager.isStatsGuiEnabled()) {
+            StringBuilder gui = new StringBuilder(ChatColor.GREEN + "║ " + ChatColor.WHITE + "  » Stats GUI: ");
+            gui.append(ChatColor.YELLOW + "Enabled");
+            gui.append(ChatColor.GREEN + "                ║");
+            sendColoredMessage(gui.toString());
+        }
+
+        sendColoredMessage(ChatColor.GREEN + "║ " + ChatColor.WHITE + "                                   "
+                + ChatColor.GREEN + " ║");
+        sendColoredMessage(ChatColor.GREEN + "║ " + ChatColor.WHITE + "  Plugin is " + ChatColor.YELLOW + "ready "
+                + ChatColor.WHITE + "and " + ChatColor.YELLOW + "running" + ChatColor.WHITE + "!     " + ChatColor.GREEN
+                + " ║");
+        sendColoredMessage(ChatColor.GREEN + "╚═════════════════════════════════════╝");
+        sendColoredMessage("");
     }
-    
+
     @Override
     public void onDisable() {
-        if (balanceTrackerTaskId != -1) {
-            Bukkit.getScheduler().cancelTask(balanceTrackerTaskId);
+        sendColoredMessage("");
+        sendColoredMessage(ChatColor.RED + "╔═════════════════════════════════════╗");
+        sendColoredMessage(ChatColor.RED + "║ " + ChatColor.GOLD + ChatColor.BOLD + "       MoneyTitles Shutdown       "
+                + ChatColor.RED + " ║");
+        sendColoredMessage(ChatColor.RED + "╠═════════════════════════════════════╣");
+
+        // Cleanup
+        if (statsManager != null) {
+            sendColoredMessage(ChatColor.RED + "║ " + ChatColor.WHITE + "» " + ChatColor.YELLOW
+                    + "Saving player statistics..." + ChatColor.RED + "       ║");
+            statsManager.saveAllStats();
+            statsManager.stopAutoSaveTask();
         }
-        lastKnownBalance.clear();
-        getLogger().info(ChatColor.RED + "» " + ChatColor.WHITE + "Plugin has been disabled.");
+
+        if (balanceManager != null) {
+            sendColoredMessage(ChatColor.RED + "║ " + ChatColor.WHITE + "» " + ChatColor.YELLOW
+                    + "Stopping balance tracker..." + ChatColor.RED + "       ║");
+            balanceManager.stopBalanceTracker();
+            balanceManager.clearBalanceCache();
+        }
+
+        if (moneyFormatter != null) {
+            sendColoredMessage(ChatColor.RED + "║ " + ChatColor.WHITE + "» " + ChatColor.YELLOW
+                    + "Clearing format cache..." + ChatColor.RED + "           ║");
+            moneyFormatter.clearCache();
+        }
+
+        if (interactionManager != null) {
+            sendColoredMessage(ChatColor.RED + "║ " + ChatColor.WHITE + "» " + ChatColor.YELLOW
+                    + "Shutting down interaction manager..." + ChatColor.RED + "║");
+            interactionManager.shutdown();
+        }
+
+        sendColoredMessage(ChatColor.RED + "╠═════════════════════════════════════╣");
+        sendColoredMessage(ChatColor.RED + "║ " + ChatColor.WHITE + "Plugin has been " + ChatColor.RED + "disabled"
+                + ChatColor.WHITE + " successfully!" + ChatColor.RED + " ║");
+        sendColoredMessage(ChatColor.RED + "╚═════════════════════════════════════╝");
+        sendColoredMessage("");
     }
 
-    private void loadConfig() {
-        reloadConfig();
-        FileConfiguration config = getConfig();
-
-        titleFadeIn = config.getInt("title.fade-in", 5);
-        titleStay = config.getInt("title.stay", 40);
-        titleFadeOut = config.getInt("title.fade-out", 5);
-
-        killTitle = ChatColor.translateAlternateColorCodes('&', 
-                config.getString("messages.kill-title", "&a&l+%amount% $"));
-        killSubtitle = ChatColor.translateAlternateColorCodes('&', 
-                config.getString("messages.kill-subtitle", "&f&lfor killing %victim%"));
-        deathTitle = ChatColor.translateAlternateColorCodes('&', 
-                config.getString("messages.death-title", "&c&l-%amount% $"));
-        deathSubtitle = ChatColor.translateAlternateColorCodes('&', 
-                config.getString("messages.death-subtitle", "&f&lKilled by %killer%"));
-
-        decimalPlaces = config.getInt("format.decimal-places", 2);
-        moneyFormat = new DecimalFormat("#,##0" + (decimalPlaces > 0 ? "." + "0".repeat(decimalPlaces) : ""));
-        
-        // Load format settings
-        formatQuadrillionEnabled = config.getBoolean("format.quadrillion.enabled", true);
-        formatQuadrillionSuffix = config.getString("format.quadrillion.suffix", "Q");
-        formatTrillionEnabled = config.getBoolean("format.trillion.enabled", true);
-        formatTrillionSuffix = config.getString("format.trillion.suffix", "T");
-        formatBillionEnabled = config.getBoolean("format.billion.enabled", true);
-        formatBillionSuffix = config.getString("format.billion.suffix", "B");
-        formatMillionEnabled = config.getBoolean("format.million.enabled", true);
-        formatMillionSuffix = config.getString("format.million.suffix", "M");
-        formatThousandEnabled = config.getBoolean("format.thousand.enabled", true);
-        formatThousandSuffix = config.getString("format.thousand.suffix", "K");
-
-        // Load sound settings
-        loadSoundSettings(config);
+    /**
+     * Returns the StatsManager instance.
+     * 
+     * @return The StatsManager instance
+     */
+    public StatsManager getStatsManager() {
+        return statsManager;
     }
-    
-    private void loadSoundSettings(FileConfiguration config) {
-        killSoundEnabled = config.getBoolean("sounds.kill.enabled", true);
-        String killSoundName = config.getString("sounds.kill.sound", "ENTITY_PLAYER_LEVELUP");
-        try {
-            killSound = Sound.valueOf(killSoundName);
-        } catch (IllegalArgumentException e) {
-            killSound = Sound.ENTITY_PLAYER_LEVELUP;
-            getLogger().warning("Invalid kill sound in config: " + killSoundName + "! Using default sound.");
-        }
-        killSoundVolume = (float) config.getDouble("sounds.kill.volume", 1.0);
-        killSoundPitch = (float) config.getDouble("sounds.kill.pitch", 1.0);
 
-        deathSoundEnabled = config.getBoolean("sounds.death.enabled", true);
-        String deathSoundName = config.getString("sounds.death.sound", "ENTITY_VILLAGER_DEATH");
-        try {
-            deathSound = Sound.valueOf(deathSoundName);
-        } catch (IllegalArgumentException e) {
-            deathSound = Sound.ENTITY_VILLAGER_DEATH;
-            getLogger().warning("Invalid death sound in config: " + deathSoundName + "! Using default sound.");
+    /**
+     * Returns the ConfigManager instance.
+     * 
+     * @return The ConfigManager instance
+     */
+    public ConfigManager getConfigManager() {
+        return configManager;
+    }
+
+    /**
+     * Returns the BalanceManager instance.
+     * 
+     * @return The BalanceManager instance
+     */
+    public BalanceManager getBalanceManager() {
+        return balanceManager;
+    }
+
+    /**
+     * Returns the MoneyFormatter instance.
+     * 
+     * @return The MoneyFormatter instance
+     */
+    public MoneyFormatter getMoneyFormatter() {
+        return moneyFormatter;
+    }
+
+    /**
+     * Initializes all managers used by the plugin.
+     */
+    private void initializeManagers() {
+        // Create config manager first as other managers depend on it
+        configManager = new ConfigManager(this);
+        configManager.loadConfig();
+
+        // Create money formatter
+        Map<String, Object> formatSettings = configManager.getFormatSettings();
+        moneyFormatter = new MoneyFormatter(
+                configManager.getDecimalPlaces(),
+                (boolean) formatSettings.get("quadrillionEnabled"),
+                (String) formatSettings.get("quadrillionSuffix"),
+                (boolean) formatSettings.get("trillionEnabled"),
+                (String) formatSettings.get("trillionSuffix"),
+                (boolean) formatSettings.get("billionEnabled"),
+                (String) formatSettings.get("billionSuffix"),
+                (boolean) formatSettings.get("millionEnabled"),
+                (String) formatSettings.get("millionSuffix"),
+                (boolean) formatSettings.get("thousandEnabled"),
+                (String) formatSettings.get("thousandSuffix"));
+
+        // Create other managers
+        balanceManager = new BalanceManager(this, configManager);
+        titleManager = new TitleManager(this, configManager, moneyFormatter);
+
+        // Create stats manager if enabled
+        if (configManager.isStatsEnabled()) {
+            statsManager = new StatsManager(this);
         }
-        deathSoundVolume = (float) config.getDouble("sounds.death.volume", 1.0);
-        deathSoundPitch = (float) config.getDouble("sounds.death.pitch", 0.5);
+
+        // Create GUI manager if stats GUI is enabled
+        if (configManager.isStatsGuiEnabled() && statsManager != null) {
+            guiManager = new GuiManager(this, configManager, statsManager, moneyFormatter);
+        }
+
+        // Create interaction manager if any player interaction features are enabled
+        if (configManager.isShowPingOnCrosshair() || configManager.isStatsGuiEnabled()) {
+            interactionManager = new InteractionManager(this, configManager, guiManager, statsManager);
+        }
+    }
+
+    /**
+     * Displays the plugin startup banner.
+     */
+    private void displayStartupBanner() {
+        sendColoredMessage("");
+        sendColoredMessage(ChatColor.DARK_AQUA + "╔═════════════════════════════════════╗");
+        sendColoredMessage(ChatColor.DARK_AQUA + "║ " + ChatColor.AQUA + ChatColor.BOLD
+                + "           MoneyTitles           " + ChatColor.DARK_AQUA + " ║");
+        sendColoredMessage(ChatColor.DARK_AQUA + "║ " + ChatColor.YELLOW + "      Version: " + ChatColor.WHITE
+                + getDescription().getVersion() + ChatColor.DARK_AQUA + "             ║");
+        sendColoredMessage(ChatColor.DARK_AQUA + "╠═════════════════════════════════════╣");
+        sendColoredMessage(ChatColor.DARK_AQUA + "║ " + ChatColor.GREEN + "Features:" + ChatColor.DARK_AQUA
+                + "                           ║");
+        sendColoredMessage(ChatColor.DARK_AQUA + "║ " + ChatColor.WHITE + "» " + ChatColor.GOLD
+                + "Kill & Death Money Rewards" + ChatColor.DARK_AQUA + "      ║");
+        sendColoredMessage(ChatColor.DARK_AQUA + "║ " + ChatColor.WHITE + "» " + ChatColor.GOLD
+                + "Player Statistics Tracking" + ChatColor.DARK_AQUA + "      ║");
+        sendColoredMessage(ChatColor.DARK_AQUA + "║ " + ChatColor.WHITE + "» " + ChatColor.GOLD
+                + "Interactive GUI & Ping Display" + ChatColor.DARK_AQUA + " ║");
+        sendColoredMessage(ChatColor.DARK_AQUA + "╠═════════════════════════════════════╣");
+        sendColoredMessage(ChatColor.DARK_AQUA + "║ " + ChatColor.WHITE + "  Developed with " + ChatColor.RED + "♥"
+                + ChatColor.WHITE + " by " + ChatColor.GOLD + "Cipher88" + ChatColor.DARK_AQUA + "   ║");
+        sendColoredMessage(ChatColor.DARK_AQUA + "╚═════════════════════════════════════╝");
+        sendColoredMessage("");
+    }
+
+    /**
+     * Sets up bStats metrics tracking.
+     */
+    private void setupMetrics() {
+        // Check if metrics are enabled in config
+        if (!configManager.isMetricsEnabled()) {
+            sendColoredMessage(ChatColor.YELLOW + "» " + ChatColor.WHITE + "bStats metrics: " + ChatColor.RED
+                    + "Disabled by config");
+            return;
+        }
+
+        // Initialize bStats metrics
+        Metrics metrics = new Metrics(this, BSTATS_PLUGIN_ID);
+        sendColoredMessage(ChatColor.GREEN + "» " + ChatColor.WHITE + "bStats metrics: " + ChatColor.GREEN + "Enabled");
     }
 
     @Override
@@ -163,88 +361,35 @@ public class MoneyTitles extends JavaPlugin implements Listener {
         if (!command.getName().equalsIgnoreCase("moneytitles")) {
             return false;
         }
-        
+
         if (!sender.hasPermission("moneytitles.reload")) {
             sender.sendMessage(ChatColor.RED + "You don't have permission to use this command!");
             return true;
         }
 
         if (args.length > 0 && args[0].equalsIgnoreCase("reload")) {
-            loadConfig();
-            sender.sendMessage(ChatColor.GREEN + "MoneyTitles configuration reloaded!");
+            try {
+                configManager.loadConfig();
+
+                // Reload the balance tracker with new settings
+                balanceManager.stopBalanceTracker();
+                balanceManager.startBalanceTracker();
+
+                // Clear caches to ensure latest settings are used
+                moneyFormatter.clearCache();
+
+                sender.sendMessage(ChatColor.GREEN + "MoneyTitles configuration reloaded!");
+            } catch (Exception e) {
+                sender.sendMessage(ChatColor.RED + "Error reloading configuration: " + e.getMessage());
+                getLogger().log(Level.SEVERE, "Error reloading configuration", e);
+            }
             return true;
         }
-        
+
         // Show help if no arguments provided
         sender.sendMessage(ChatColor.AQUA + "MoneyTitles " + ChatColor.GRAY + "v" + getDescription().getVersion());
         sender.sendMessage(ChatColor.GRAY + "/moneytitles reload " + ChatColor.WHITE + "- Reload the configuration");
         return true;
-    }
-
-    private boolean setupEconomy() {
-        if (getServer().getPluginManager().getPlugin("Vault") == null) {
-            return false;
-        }
-        RegisteredServiceProvider<Economy> rsp = getServer().getServicesManager().getRegistration(Economy.class);
-        if (rsp == null) {
-            return false;
-        }
-        econ = rsp.getProvider();
-        return econ != null;
-    }
-
-    private void startBalanceTracker() {
-        balanceTrackerTaskId = Bukkit.getScheduler().runTaskTimerAsynchronously(this, () -> {
-            try {
-                for (Player player : Bukkit.getOnlinePlayers()) {
-                    if (player != null && player.isOnline()) {
-                        lastKnownBalance.put(player.getUniqueId(), econ.getBalance(player));
-                    }
-                }
-            } catch (Exception e) {
-                getLogger().log(Level.SEVERE, "Error in balance tracker: ", e);
-            }
-        }, 5L, 5L).getTaskId();
-    }
-
-    private String formatMoney(double amount) {
-        if (amount >= 1_000_000_000_000_000D && formatQuadrillionEnabled) {
-            return formatLargeNumber(amount, 1_000_000_000_000_000D, formatQuadrillionSuffix);
-        } else if (amount >= 1_000_000_000_000D && formatTrillionEnabled) {
-            return formatLargeNumber(amount, 1_000_000_000_000D, formatTrillionSuffix);
-        } else if (amount >= 1_000_000_000D && formatBillionEnabled) {
-            return formatLargeNumber(amount, 1_000_000_000D, formatBillionSuffix);
-        } else if (amount >= 1_000_000D && formatMillionEnabled) {
-            return formatLargeNumber(amount, 1_000_000D, formatMillionSuffix);
-        } else if (amount >= 1_000D && formatThousandEnabled) {
-            return formatLargeNumber(amount, 1_000D, formatThousandSuffix);
-        }
-        return moneyFormat.format(amount);
-    }
-    
-    private String formatLargeNumber(double amount, double divisor, String suffix) {
-        double value = amount / divisor;
-        if (decimalPlaces == 0 || value == Math.floor(value)) {
-            return ((int) value) + suffix;
-        } else {
-            return moneyFormat.format(value) + suffix;
-        }
-    }
-    
-    private void sendMoneyTitle(Player player, String title, String subtitle) {
-        try {
-            player.sendTitle(title, subtitle, titleFadeIn, titleStay, titleFadeOut);
-        } catch (Exception e) {
-            getLogger().log(Level.WARNING, "Failed to send title to " + player.getName(), e);
-        }
-    }
-    
-    private void playSound(Player player, Sound sound, float volume, float pitch) {
-        try {
-            player.playSound(player.getLocation(), sound, volume, pitch);
-        } catch (Exception e) {
-            getLogger().log(Level.WARNING, "Failed to play sound for " + player.getName(), e);
-        }
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
@@ -252,52 +397,69 @@ public class MoneyTitles extends JavaPlugin implements Listener {
         Player victim = event.getEntity();
         Player killer = victim.getKiller();
 
+        // Ignore if there's no killer or if player killed themselves
         if (killer == null || killer.equals(victim)) {
             return;
         }
 
-        double oldKillerBalance = lastKnownBalance.getOrDefault(killer.getUniqueId(), 0D);
-        double newKillerBalance = econ.getBalance(killer);
-        double oldVictimBalance = lastKnownBalance.getOrDefault(victim.getUniqueId(), 0D);
-        double newVictimBalance = econ.getBalance(victim);
+        try {
+            // Get the balances before the kill
+            double oldKillerBalance = balanceManager.getBalance(killer);
+            double oldVictimBalance = balanceManager.getBalance(victim);
 
-        double gained = newKillerBalance - oldKillerBalance;
-        double lost = oldVictimBalance - newVictimBalance;
+            // Calculate money gained/lost
+            double gained = balanceManager.calculateMoneyGained(killer, oldKillerBalance);
+            double lost = balanceManager.calculateMoneyLost(victim, oldVictimBalance);
 
-        // Update balances immediately
-        lastKnownBalance.put(killer.getUniqueId(), newKillerBalance);
-        lastKnownBalance.put(victim.getUniqueId(), newVictimBalance);
+            // Track stats
+            if (configManager.isMetricsEnabled()) {
+                killsTracked.incrementAndGet();
+                moneyTransferred.addAndGet((int) Math.abs(gained));
+            }
 
-        // Process killer rewards
-        if (gained > 0) {
-            String formattedAmount = formatMoney(gained);
-            String title = killTitle.replace("%amount%", formattedAmount);
-            String subtitle = killSubtitle.replace("%victim%", victim.getName());
-            
-            // Send title and sound async to reduce main thread load
-            Bukkit.getScheduler().runTask(this, () -> {
-                sendMoneyTitle(killer, title, subtitle);
-                
-                if (killSoundEnabled) {
-                    playSound(killer, killSound, killSoundVolume, killSoundPitch);
-                }
-            });
+            // Update player stats if enabled
+            if (configManager.isStatsEnabled() && statsManager != null) {
+                statsManager.playerKill(killer, victim, gained);
+            }
+
+            // Process rewards and penalties
+            if (gained > 0) {
+                titleManager.sendKillNotification(killer, victim, gained);
+            }
+
+            if (lost > 0) {
+                titleManager.sendDeathNotification(victim, killer, lost);
+            }
+        } catch (Exception e) {
+            getLogger().log(Level.SEVERE, "Error processing player death event", e);
         }
+    }
 
-        // Process victim penalties
-        if (lost > 0) {
-            String formattedAmount = formatMoney(lost);
-            String title = deathTitle.replace("%amount%", formattedAmount);
-            String subtitle = deathSubtitle.replace("%killer%", killer.getName());
-            
-            // Send title and sound async to reduce main thread load
-            Bukkit.getScheduler().runTask(this, () -> {
-                sendMoneyTitle(victim, title, subtitle);
-                
-                if (deathSoundEnabled) {
-                    playSound(victim, deathSound, deathSoundVolume, deathSoundPitch);
+    /**
+     * Starts a scheduled task to periodically verify the license
+     * This prevents users from bypassing the license check after plugin startup
+     */
+    private void startLicenseHeartbeat() {
+        // Check license every 30 minutes (20 ticks * 60 seconds * 30)
+        getServer().getScheduler().runTaskTimerAsynchronously(this, () -> {
+            // First try the heartbeat endpoint
+            if (!licenseVerifier.sendHeartbeat()) {
+                // If heartbeat fails, fall back to full verification
+                if (!licenseVerifier.verify()) {
+                    getLogger().severe("License validation failed during runtime check! Disabling plugin.");
+                    getServer().getScheduler().runTask(this, () -> {
+                        getServer().getPluginManager().disablePlugin(this);
+                    });
+                } else if (licenseVerifier.isOfflineMode() && !licenseVerifier.isOfflineModeWarningShown()) {
+                    getLogger().warning(
+                            "Switched to offline mode during runtime. License verification will be skipped until server restart.");
                 }
-            });
-        }
+            }
+        }, 20 * 60 * 30, 20 * 60 * 30);
+    }
+
+    // Add this method to send colored messages reliably to console
+    private void sendColoredMessage(String message) {
+        getServer().getConsoleSender().sendMessage(message);
     }
 }

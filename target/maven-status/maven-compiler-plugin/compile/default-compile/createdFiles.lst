@@ -1,0 +1,14 @@
+org\cipher\moneyTitles\manager\TitleManager.class
+org\cipher\moneyTitles\gui\StatsGUI.class
+org\cipher\moneyTitles\listeners\PlayerInteractionListener$1.class
+org\cipher\moneyTitles\config\ConfigManager.class
+org\cipher\moneyTitles\manager\GuiManager.class
+org\cipher\moneyTitles\listeners\PlayerInteractionListener$1$1.class
+org\cipher\moneyTitles\manager\StatsManager.class
+org\cipher\moneyTitles\MoneyTitles.class
+org\cipher\moneyTitles\util\MoneyFormatter.class
+org\cipher\moneyTitles\util\LicenseVerifier.class
+org\cipher\moneyTitles\listeners\PlayerInteractionListener.class
+org\cipher\moneyTitles\manager\InteractionManager.class
+org\cipher\moneyTitles\manager\BalanceManager.class
+org\cipher\moneyTitles\manager\StatsManager$PlayerStats.class

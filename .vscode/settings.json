@@ -1,3 +1,7 @@
 {
-    "java.compile.nullAnalysis.mode": "automatic"
+  "java.compile.nullAnalysis.mode": "automatic",
+  "java.configuration.updateBuildConfiguration": "automatic",
+  "yaml.schemas": {
+    "https://json.schemastore.org/bukkit-plugin.json": "file:///d%3A/Minecraft/MoneyTitles/src/main/resources/plugin.yml"
+  }
 }
