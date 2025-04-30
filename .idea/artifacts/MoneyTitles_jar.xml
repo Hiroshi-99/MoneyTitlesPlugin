@@ -3,6 +3,9 @@
     <output-path>$PROJECT_DIR$/out/artifacts/MoneyTitles_jar</output-path>
     <root id="archive" name="MoneyTitles.jar">
       <element id="module-output" name="MoneyTitles" />
+      <element id="extracted-dir" path="$MAVEN_REPOSITORY$/org/bstats/bstats-base/3.0.2/bstats-base-3.0.2.jar" path-in-jar="/" />
+      <element id="extracted-dir" path="$MAVEN_REPOSITORY$/org/bstats/bstats-bukkit/3.0.2/bstats-bukkit-3.0.2.jar" path-in-jar="/" />
+      <element id="extracted-dir" path="$MAVEN_REPOSITORY$/de/themoep/inventorygui/1.6.5-SNAPSHOT/inventorygui-1.6.5-20250404.195627-2.jar" path-in-jar="/" />
     </root>
   </artifact>
 </component>

@@ -1,7 +1,7 @@
 name: MoneyTitles
 version: '${project.version}'
 main: org.cipher.moneyTitles.MoneyTitles
-api-version: '1.21'
+api-version: '1.19'
 depend: [ Vault ]
 description: High-performance money titles plugin for PvP
 author: Cipher88

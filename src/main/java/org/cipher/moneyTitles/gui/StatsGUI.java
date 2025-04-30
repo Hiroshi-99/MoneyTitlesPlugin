@@ -22,8 +22,10 @@ import org.cipher.moneyTitles.manager.StatsManager;
 import org.cipher.moneyTitles.manager.StatsManager.PlayerStats;
 import org.cipher.moneyTitles.util.MoneyFormatter;
 
+import java.text.NumberFormat;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
@@ -93,62 +95,52 @@ public class StatsGUI {
      */
     private void setupGuiElements() {
         PlayerStats stats = statsManager.getPlayerStats(target.getUniqueId());
+        NumberFormat numberFormat = NumberFormat.getInstance(Locale.US);
 
         // Player head in the center top
         gui.addElement(new StaticGuiElement('a',
                 createPlayerHead(),
-                click -> {
-                    return true; // Do nothing on click
-                },
-                ChatColor.GOLD + target.getName() + "'s Statistics",
-                ChatColor.GRAY + "View detailed statistics for " + target.getName()));
+                click -> true,
+                ChatColor.GOLD + "§l" + target.getName() + "'s Stats",
+                ChatColor.GRAY + "§m--------------------------",
+                ChatColor.GRAY + "View detailed statistics for " + ChatColor.YELLOW + target.getName()));
 
         // Kills (Emerald)
         gui.addElement(new StaticGuiElement('b',
                 new ItemStack(Material.DIAMOND_SWORD),
-                click -> {
-                    return true; // Do nothing on click
-                },
-                ChatColor.YELLOW + "Kills: " + ChatColor.WHITE + stats.getKills(),
-                ChatColor.GRAY + "Total kills accumulated during PvP battles"));
+                click -> true,
+                ChatColor.GREEN + "§l[1m[32m» Kills: " + ChatColor.WHITE + numberFormat.format(stats.getKills()),
+                ChatColor.DARK_GRAY + "Total kills in PvP battles"));
 
         // Deaths (Bone)
         gui.addElement(new StaticGuiElement('c',
                 new ItemStack(Material.BONE),
-                click -> {
-                    return true; // Do nothing on click
-                },
-                ChatColor.YELLOW + "Deaths: " + ChatColor.WHITE + stats.getDeaths(),
-                ChatColor.GRAY + "Times fallen in battle against other players"));
+                click -> true,
+                ChatColor.RED + "§l[1m[31m» Deaths: " + ChatColor.WHITE + numberFormat.format(stats.getDeaths()),
+                ChatColor.DARK_GRAY + "Times fallen in battle"));
 
         // Current money (Gold Ingot)
         gui.addElement(new StaticGuiElement('d',
                 new ItemStack(Material.GOLD_INGOT),
-                click -> {
-                    return true; // Do nothing on click
-                },
-                ChatColor.YELLOW + "Current Money: " + ChatColor.GOLD
+                click -> true,
+                ChatColor.GOLD + "§l[1m[33m» Current Money: " + ChatColor.YELLOW
                         + moneyFormatter.formatMoney(statsManager.getCurrentMoney(target)),
-                ChatColor.GRAY + "Current monetary wealth on this server"));
+                ChatColor.DARK_GRAY + "Current monetary wealth"));
 
         // Money earned (Diamond)
         gui.addElement(new StaticGuiElement('e',
                 new ItemStack(Material.DIAMOND),
-                click -> {
-                    return true; // Do nothing on click
-                },
-                ChatColor.YELLOW + "Money Earned: " + ChatColor.AQUA
+                click -> true,
+                ChatColor.AQUA + "§l[1m[36m» Money Earned: " + ChatColor.WHITE
                         + moneyFormatter.formatMoney(stats.getMoneyGained()),
-                ChatColor.GRAY + "Money earned from killing other players"));
+                ChatColor.DARK_GRAY + "Money earned from PvP"));
 
         // Playtime (Clock)
         gui.addElement(new StaticGuiElement('f',
                 new ItemStack(Material.CLOCK),
-                click -> {
-                    return true; // Do nothing on click
-                },
-                ChatColor.YELLOW + "Playtime: " + ChatColor.WHITE + stats.getFormattedPlaytime(),
-                ChatColor.GRAY + "Time spent on this server"));
+                click -> true,
+                ChatColor.YELLOW + "§l[1m[33m» Playtime: " + ChatColor.WHITE + getPrettyPlaytime(stats.getPlaytime()),
+                ChatColor.DARK_GRAY + "Time spent on this server"));
     }
 
     /**
@@ -164,6 +156,19 @@ public class StatsGUI {
             skull.setItemMeta(meta);
         }
         return skull;
+    }
+
+    // Helper for pretty playtime
+    private String getPrettyPlaytime(long playtimeMinutes) {
+        long hours = playtimeMinutes / 60;
+        long minutes = playtimeMinutes % 60;
+        if (hours > 0 && minutes > 0) {
+            return hours + "h " + minutes + "m";
+        } else if (hours > 0) {
+            return hours + "h";
+        } else {
+            return minutes + "m";
+        }
     }
 
     /**
